@@ -10,6 +10,13 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  
+  /* Audio Jones Brand Colors */
+  --color-brand-orange: #FF4500;
+  --color-brand-gold: #FFD700;
+  --color-brand-teal: #008080;
+  --color-brand-black: #000000;
+  --color-brand-white: #FFFFFF;
 }
 
 @media (prefers-color-scheme: dark) {
