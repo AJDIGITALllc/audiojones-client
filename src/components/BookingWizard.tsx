@@ -1,0 +1,430 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createBooking, uploadBookingAsset } from "@/lib/api/client";
+import { fireAutomationEvent } from "@/lib/automation";
+import type { ServiceSummary } from "@/lib/types";
+
+type WizardStep = "service" | "details" | "schedule" | "files" | "review";
+
+interface BookingFormData {
+  serviceId: string;
+  serviceName: string;
+  notes: string;
+  scheduledDate: string;
+  files: File[];
+}
+
+export default function BookingWizard({
+  service,
+  onClose,
+}: {
+  service: ServiceSummary;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [currentStep, setCurrentStep] = useState<WizardStep>("details");
+  const [formData, setFormData] = useState<BookingFormData>({
+    serviceId: service.id,
+    serviceName: service.name,
+    notes: "",
+    scheduledDate: "",
+    files: [],
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const steps: WizardStep[] = ["details", "schedule", "files", "review"];
+  const currentStepIndex = steps.indexOf(currentStep);
+
+  const handleNext = () => {
+    if (currentStepIndex < steps.length - 1) {
+      setCurrentStep(steps[currentStepIndex + 1]);
+    }
+  };
+
+  const handleBack = () => {
+    if (currentStepIndex > 0) {
+      setCurrentStep(steps[currentStepIndex - 1]);
+    }
+  };
+
+  const handleSubmit = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Create booking
+      const response = await createBooking({
+        serviceId: formData.serviceId,
+        variantId: "default",
+        startAt: formData.scheduledDate || new Date().toISOString(),
+        intake: {
+          notes: formData.notes,
+        },
+      });
+
+      // Upload files
+      for (const file of formData.files) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("fileType", "REFERENCE");
+        await uploadBookingAsset(response.bookingId, fd);
+      }
+
+      // Fire automation event
+      await fireAutomationEvent({
+        type: "booking.created",
+        bookingId: response.bookingId,
+        tenantId: service.tenantId,
+        payload: {
+          serviceId: formData.serviceId,
+        },
+      });
+
+      // Redirect to bookings
+      router.push("/bookings");
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create booking");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      {/* Overlay */}
+      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+
+      {/* Modal */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="bg-background-card rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          {/* Header */}
+          <div className="p-6 border-b border-gray-800">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-bold text-white">
+                Book: {service.name}
+              </h2>
+              <button
+                onClick={onClose}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            {/* Progress Steps */}
+            <div className="flex items-center justify-between">
+              {steps.map((step, idx) => (
+                <div key={step} className="flex items-center flex-1">
+                  <div
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                      idx <= currentStepIndex
+                        ? "bg-primary text-white"
+                        : "bg-gray-800 text-gray-500"
+                    }`}
+                  >
+                    {idx + 1}
+                  </div>
+                  {idx < steps.length - 1 && (
+                    <div
+                      className={`flex-1 h-0.5 mx-2 ${
+                        idx < currentStepIndex ? "bg-primary" : "bg-gray-800"
+                      }`}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="p-6">
+            {error && (
+              <div className="mb-6 bg-red-900/20 border border-red-500/50 rounded-lg p-4">
+                <p className="text-red-400">{error}</p>
+              </div>
+            )}
+
+            {currentStep === "details" && (
+              <StepDetails formData={formData} setFormData={setFormData} />
+            )}
+            {currentStep === "schedule" && (
+              <StepSchedule formData={formData} setFormData={setFormData} />
+            )}
+            {currentStep === "files" && (
+              <StepFiles formData={formData} setFormData={setFormData} />
+            )}
+            {currentStep === "review" && (
+              <StepReview formData={formData} service={service} />
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="p-6 border-t border-gray-800 flex items-center justify-between">
+            <button
+              onClick={handleBack}
+              disabled={currentStepIndex === 0}
+              className="px-6 py-2 bg-background hover:bg-gray-900 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Back
+            </button>
+            {currentStep === "review" ? (
+              <button
+                onClick={handleSubmit}
+                disabled={loading}
+                className="px-6 py-2 bg-primary hover:bg-primary-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
+              >
+                {loading ? "Submitting..." : "Submit Booking"}
+              </button>
+            ) : (
+              <button
+                onClick={handleNext}
+                className="px-6 py-2 bg-primary hover:bg-primary-600 text-white rounded-lg font-medium transition-colors"
+              >
+                Next
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function StepDetails({
+  formData,
+  setFormData,
+}: {
+  formData: BookingFormData;
+  setFormData: (data: BookingFormData) => void;
+}) {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-xl font-semibold text-white mb-2">
+          Booking Details
+        </h3>
+        <p className="text-gray-400">Tell us about your project</p>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-400 mb-2">
+          Project Notes
+        </label>
+        <textarea
+          value={formData.notes}
+          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+          placeholder="Describe your project, goals, and any special requirements..."
+          rows={6}
+          className="w-full px-4 py-3 bg-background border border-gray-800 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:border-primary"
+        />
+      </div>
+    </div>
+  );
+}
+
+function StepSchedule({
+  formData,
+  setFormData,
+}: {
+  formData: BookingFormData;
+  setFormData: (data: BookingFormData) => void;
+}) {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-xl font-semibold text-white mb-2">
+          Schedule Session
+        </h3>
+        <p className="text-gray-400">Choose a preferred date (optional)</p>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-400 mb-2">
+          Preferred Date
+        </label>
+        <input
+          type="date"
+          value={formData.scheduledDate}
+          onChange={(e) =>
+            setFormData({ ...formData, scheduledDate: e.target.value })
+          }
+          className="w-full px-4 py-3 bg-background border border-gray-800 rounded-lg text-white focus:outline-none focus:border-primary"
+        />
+        <p className="mt-2 text-sm text-gray-500">
+          We'll confirm the exact date and time after reviewing your booking
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function StepFiles({
+  formData,
+  setFormData,
+}: {
+  formData: BookingFormData;
+  setFormData: (data: BookingFormData) => void;
+}) {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setFormData({
+        ...formData,
+        files: Array.from(e.target.files),
+      });
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-xl font-semibold text-white mb-2">
+          Upload Reference Files
+        </h3>
+        <p className="text-gray-400">
+          Upload any reference tracks, stems, or documents (optional)
+        </p>
+      </div>
+
+      <div>
+        <label className="block">
+          <input
+            type="file"
+            multiple
+            onChange={handleFileChange}
+            className="hidden"
+          />
+          <div className="w-full px-6 py-12 border-2 border-dashed border-gray-800 rounded-lg text-center cursor-pointer hover:border-primary transition-colors">
+            <svg
+              className="w-12 h-12 mx-auto mb-4 text-gray-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+              />
+            </svg>
+            <p className="text-white mb-1">Click to upload files</p>
+            <p className="text-sm text-gray-500">
+              or drag and drop files here
+            </p>
+          </div>
+        </label>
+
+        {formData.files.length > 0 && (
+          <div className="mt-4 space-y-2">
+            {formData.files.map((file, idx) => (
+              <div
+                key={idx}
+                className="flex items-center justify-between p-3 bg-background rounded-lg"
+              >
+                <span className="text-white text-sm">{file.name}</span>
+                <button
+                  onClick={() =>
+                    setFormData({
+                      ...formData,
+                      files: formData.files.filter((_, i) => i !== idx),
+                    })
+                  }
+                  className="text-red-400 hover:text-red-300"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StepReview({
+  formData,
+  service,
+}: {
+  formData: BookingFormData;
+  service: ServiceSummary;
+}) {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-xl font-semibold text-white mb-2">
+          Review Your Booking
+        </h3>
+        <p className="text-gray-400">
+          Please review the details before submitting
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        <div className="bg-background rounded-lg p-4">
+          <h4 className="text-sm font-medium text-gray-400 mb-1">Service</h4>
+          <p className="text-white">{service.name}</p>
+          <p className="text-sm text-gray-500 mt-1">{service.description}</p>
+        </div>
+
+        {formData.notes && (
+          <div className="bg-background rounded-lg p-4">
+            <h4 className="text-sm font-medium text-gray-400 mb-1">
+              Project Notes
+            </h4>
+            <p className="text-white whitespace-pre-wrap">{formData.notes}</p>
+          </div>
+        )}
+
+        {formData.scheduledDate && (
+          <div className="bg-background rounded-lg p-4">
+            <h4 className="text-sm font-medium text-gray-400 mb-1">
+              Preferred Date
+            </h4>
+            <p className="text-white">
+              {new Date(formData.scheduledDate).toLocaleDateString()}
+            </p>
+          </div>
+        )}
+
+        {formData.files.length > 0 && (
+          <div className="bg-background rounded-lg p-4">
+            <h4 className="text-sm font-medium text-gray-400 mb-2">
+              Reference Files ({formData.files.length})
+            </h4>
+            <div className="space-y-1">
+              {formData.files.map((file, idx) => (
+                <p key={idx} className="text-white text-sm">
+                  {file.name}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="bg-primary/10 border border-primary/50 rounded-lg p-4">
+          <h4 className="text-sm font-medium text-primary mb-1">Price</h4>
+          <p className="text-white text-xl font-semibold">
+            {service.priceLabel}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
