@@ -1,14 +1,6 @@
 // src/app/page.tsx
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return (
-    <main className="min-h-screen flex items-center justify-center bg-black text-white">
-      <div className="text-center space-y-2">
-        <h1 className="text-3xl font-semibold">Audio Jones Client Portal</h1>
-        <p className="text-sm text-gray-300">
-          You are seeing this from <code>src/app/page.tsx</code>. The root route `/` is wired.
-        </p>
-      </div>
-    </main>
-  );
+  redirect("/login");
 }
