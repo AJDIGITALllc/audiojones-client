@@ -1,6 +1,6 @@
 // src/lib/automation.ts
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'https://api.audiojones.com';
+const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? '/api';
 
 export type AutomationEventType =
   | 'booking.created'

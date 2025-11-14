@@ -1,7 +1,7 @@
 // src/lib/api/client.ts
 import type { BookingSummary, BookingDetail, AssetFile, DashboardStats } from '@/lib/types';
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'https://api.audiojones.com';
+const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? '/api';
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
