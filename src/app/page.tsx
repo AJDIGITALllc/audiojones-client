@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import {
   Card,
   CardContent,
@@ -14,6 +15,11 @@ import {
 } from "@/components/ui/Table";
 import { Button } from "@/components/ui/Button";
 import { ArrowRight, Download, Music, Video } from "lucide-react";
+
+export const metadata: Metadata = {
+  title: "Dashboard | Audio Jones Client Portal",
+  description: "View your projects, deliverables, and billing information",
+};
 
 // Mock data - in a real app, this would come from an API
 const projects = [
