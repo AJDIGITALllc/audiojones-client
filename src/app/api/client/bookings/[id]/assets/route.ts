@@ -3,8 +3,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+  
   // Mock upload - in production this would handle FormData
   const formData = await request.formData();
   const file = formData.get('file') as File | null;
@@ -20,7 +22,7 @@ export async function POST(
   // Mock response
   return NextResponse.json({
     id: `asset-${Date.now()}`,
-    bookingId: params.id,
+    bookingId: id,
     fileName: file.name,
     fileType: fileType || 'OTHER',
     sizeBytes: file.size,

@@ -37,9 +37,9 @@ export async function GET(request: NextRequest) {
         description: data.description,
         category: data.category.toUpperCase() as any,
         iconEmoji: '🎵', // Default, can be enhanced later
-        durationLabel: data.duration ? ${data.duration} min : 'Custom',
+        durationLabel: data.duration ? `${data.duration} min` : 'Custom',
         modeLabel: 'Remote',
-        priceLabel: data.basePrice ? From src\app\api\client\services\route.ts{(data.basePrice / 100).toFixed(0)} : 'Custom Quote',
+        priceLabel: data.basePrice ? `From $${(data.basePrice / 100).toFixed(0)}` : 'Custom Quote',
       };
     });
 
