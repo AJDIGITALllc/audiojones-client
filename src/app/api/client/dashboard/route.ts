@@ -1,63 +1,120 @@
 // src/app/api/client/dashboard/route.ts
-import { NextResponse } from 'next/server';
-import type { DashboardStats } from '@/lib/types';
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/firebase';
+import { collection, getDocs, query, where, orderBy, limit, doc, getDoc } from 'firebase/firestore';
+import { requireAuth, errorResponse } from '@/lib/api/middleware';
+import type { Booking, Asset, Service } from '@/lib/types/firestore';
+import type { DashboardStats, BookingSummary } from '@/lib/types';
 
-export async function GET() {
-  const mockStats: DashboardStats = {
-    upcomingSessions: 3,
-    upcomingDelta: 1,
-    pendingApprovals: 2,
-    pendingDelta: -1,
-    completedSessions: 12,
-    completedDeltaPct: 15,
-    openMessages: 1,
-    openMessagesDelta: 1,
-    totalBookings: 18,
-    activeBookings: 5,
-    totalAssets: 24,
-    totalHoursBooked: 48,
-    upcomingBookings: [
-      {
-        id: 'booking-1',
-        tenantId: 'tenant-audiojones',
-        serviceId: 'svc-mixing',
-        serviceName: 'Professional Mixing',
-        status: 'APPROVED',
-        source: 'CLIENT_PORTAL',
-        startAt: new Date(Date.now() + 86400000 * 2).toISOString(),
-        endAt: new Date(Date.now() + 86400000 * 2 + 7200000).toISOString(),
-        scheduledDate: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
-        totalCost: 500,
-        createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-      },
-      {
-        id: 'booking-2',
-        tenantId: 'tenant-audiojones',
-        serviceId: 'svc-mastering',
-        serviceName: 'Mastering Session',
-        status: 'APPROVED',
-        source: 'CLIENT_PORTAL',
-        startAt: new Date(Date.now() + 86400000 * 5).toISOString(),
-        endAt: new Date(Date.now() + 86400000 * 5 + 3600000).toISOString(),
-        scheduledDate: new Date(Date.now() + 86400000 * 5).toISOString().split('T')[0],
-        totalCost: 300,
-        createdAt: new Date(Date.now() - 86400000 * 1).toISOString(),
-      },
-      {
-        id: 'booking-3',
-        tenantId: 'tenant-audiojones',
-        serviceId: 'svc-consultation',
-        serviceName: 'Strategy Consultation',
-        status: 'PENDING',
-        source: 'CLIENT_PORTAL',
-        startAt: new Date(Date.now() + 86400000 * 7).toISOString(),
-        endAt: new Date(Date.now() + 86400000 * 7 + 3600000).toISOString(),
-        scheduledDate: new Date(Date.now() + 86400000 * 7).toISOString().split('T')[0],
-        totalCost: 200,
-        createdAt: new Date().toISOString(),
-      },
-    ],
-  };
+export async function GET(request: NextRequest) {
+  try {
+    const authResult = await requireAuth(request);
+    if (authResult instanceof Response) return authResult;
+    
+    const { tenantId, userId } = authResult;
 
-  return NextResponse.json(mockStats);
+    // Fetch all bookings for this user
+    const bookingsSnap = await getDocs(
+      query(
+        collection(db, 'bookings'),
+        where('tenantId', '==', tenantId),
+        where('userId', '==', userId)
+      )
+    );
+
+    const bookings = bookingsSnap.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as (Booking & { id: string })[];
+
+    // Calculate stats
+    const totalBookings = bookings.length;
+    const activeBookings = bookings.filter(b => 
+      ['approved', 'in_progress'].includes(b.status)
+    ).length;
+    const pendingApprovals = bookings.filter(b => b.status === 'pending').length;
+    const completedBookings = bookings.filter(b => b.status === 'completed').length;
+
+    // Get upcoming bookings (approved, scheduled in future)
+    const now = new Date();
+    const upcomingBookingsData = bookings
+      .filter(b => 
+        b.status === 'approved' && 
+        b.scheduledAt && 
+        b.scheduledAt.toDate() > now
+      )
+      .sort((a, b) => 
+        (a.scheduledAt?.toMillis() || 0) - (b.scheduledAt?.toMillis() || 0)
+      )
+      .slice(0, 5);
+
+    // Fetch service names for upcoming bookings
+    const upcomingBookings: BookingSummary[] = await Promise.all(
+      upcomingBookingsData.map(async (booking) => {
+        let serviceName = 'Unknown Service';
+        try {
+          const serviceDoc = await getDoc(doc(db, 'services', booking.serviceId));
+          if (serviceDoc.exists()) {
+            serviceName = (serviceDoc.data() as Service).name;
+          }
+        } catch (err) {
+          console.error('Failed to fetch service:', err);
+        }
+
+        return {
+          id: booking.id,
+          tenantId: booking.tenantId,
+          serviceId: booking.serviceId,
+          serviceName,
+          status: booking.status.toUpperCase() as any,
+          source: 'CLIENT_PORTAL',
+          startAt: booking.startTime?.toDate().toISOString() || booking.scheduledAt?.toDate().toISOString() || '',
+          endAt: booking.endTime?.toDate().toISOString() || booking.scheduledAt?.toDate().toISOString() || '',
+          scheduledDate: booking.scheduledAt?.toDate().toISOString().split('T')[0] || '',
+          totalCost: booking.priceCents ? booking.priceCents / 100 : 0,
+          createdAt: booking.createdAt.toDate().toISOString(),
+        };
+      })
+    );
+
+    // Fetch assets count
+    const assetsSnap = await getDocs(
+      query(
+        collection(db, 'assets'),
+        where('tenantId', '==', tenantId),
+        where('userId', '==', userId)
+      )
+    );
+    const totalAssets = assetsSnap.size;
+
+    // Calculate total hours (rough estimate from booking durations)
+    const totalHoursBooked = bookings.reduce((acc, b) => {
+      if (b.startTime && b.endTime) {
+        const hours = (b.endTime.toMillis() - b.startTime.toMillis()) / (1000 * 60 * 60);
+        return acc + hours;
+      }
+      return acc;
+    }, 0);
+
+    const stats: DashboardStats = {
+      upcomingSessions: upcomingBookingsData.length,
+      upcomingDelta: 0, // TODO: Calculate delta from previous period
+      pendingApprovals,
+      pendingDelta: 0, // TODO: Calculate delta
+      completedSessions: completedBookings,
+      completedDeltaPct: 0, // TODO: Calculate percentage change
+      openMessages: 0, // TODO: Implement messaging system
+      openMessagesDelta: 0,
+      totalBookings,
+      activeBookings,
+      totalAssets,
+      totalHoursBooked: Math.round(totalHoursBooked),
+      upcomingBookings,
+    };
+
+    return NextResponse.json(stats);
+  } catch (error) {
+    console.error('Failed to fetch dashboard stats:', error);
+    return errorResponse('Failed to fetch dashboard stats');
+  }
 }

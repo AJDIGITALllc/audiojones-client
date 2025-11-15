@@ -1,85 +1,86 @@
 // src/app/api/client/assets/route.ts
 import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/firebase';
+import { collection, getDocs, query, where, orderBy, doc, getDoc } from 'firebase/firestore';
+import { requireAuth, errorResponse } from '@/lib/api/middleware';
+import type { Asset, Service } from '@/lib/types/firestore';
 import type { AssetFile } from '@/lib/types';
 
-const mockAssets: AssetFile[] = [
-  {
-    id: 'asset-1',
-    bookingId: 'booking-1',
-    serviceName: 'Professional Mixing',
-    fileName: 'vocal-stems.zip',
-    fileType: 'REFERENCE',
-    sizeBytes: 45678900,
-    downloadUrl: '#',
-    uploadedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-  },
-  {
-    id: 'asset-2',
-    bookingId: 'booking-1',
-    serviceName: 'Professional Mixing',
-    fileName: 'reference-track.mp3',
-    fileType: 'REFERENCE',
-    sizeBytes: 8765432,
-    downloadUrl: '#',
-    uploadedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-  },
-  {
-    id: 'asset-3',
-    bookingId: 'booking-2',
-    serviceName: 'Mastering Session',
-    fileName: 'track-01-mixdown.wav',
-    fileType: 'ROUGH_MIX',
-    sizeBytes: 56789012,
-    downloadUrl: '#',
-    uploadedAt: new Date(Date.now() - 86400000 * 4).toISOString(),
-  },
-  {
-    id: 'asset-4',
-    bookingId: 'booking-2',
-    serviceName: 'Mastering Session',
-    fileName: 'track-02-mixdown.wav',
-    fileType: 'ROUGH_MIX',
-    sizeBytes: 54321098,
-    downloadUrl: '#',
-    uploadedAt: new Date(Date.now() - 86400000 * 4).toISOString(),
-  },
-  {
-    id: 'asset-5',
-    bookingId: 'booking-4',
-    serviceName: 'Beat Production',
-    fileName: 'final-beat-master.wav',
-    fileType: 'MASTER',
-    sizeBytes: 62345678,
-    downloadUrl: '#',
-    uploadedAt: new Date(Date.now() - 86400000 * 13).toISOString(),
-  },
-  {
-    id: 'asset-6',
-    bookingId: 'booking-4',
-    serviceName: 'Beat Production',
-    fileName: 'beat-stems.zip',
-    fileType: 'STEMS',
-    sizeBytes: 145678901,
-    downloadUrl: '#',
-    uploadedAt: new Date(Date.now() - 86400000 * 13).toISOString(),
-  },
-];
-
 export async function GET(request: NextRequest) {
-  const { searchParams } = request.nextUrl;
-  const type = searchParams.get('type');
-  const bookingId = searchParams.get('bookingId');
-  const serviceId = searchParams.get('serviceId');
+  try {
+    const authResult = await requireAuth(request);
+    if (authResult instanceof Response) return authResult;
+    
+    const { tenantId, userId } = authResult;
+    const { searchParams } = request.nextUrl;
+    const bookingId = searchParams.get('bookingId');
+    const fileType = searchParams.get('type');
 
-  let filtered = mockAssets;
+    // Query assets for the user's tenant and user
+    let q = query(
+      collection(db, 'assets'),
+      where('tenantId', '==', tenantId),
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc')
+    );
 
-  if (type) {
-    filtered = filtered.filter((a) => a.fileType === type);
+    if (bookingId) {
+      q = query(
+        collection(db, 'assets'),
+        where('tenantId', '==', tenantId),
+        where('userId', '==', userId),
+        where('bookingId', '==', bookingId),
+        orderBy('createdAt', 'desc')
+      );
+    }
+
+    const snap = await getDocs(q);
+
+    // Filter by file type if specified (client-side since Firestore compound queries are limited)
+    let assetDocs = snap.docs;
+    if (fileType && fileType !== 'all') {
+      assetDocs = assetDocs.filter(doc => {
+        const data = doc.data() as Asset;
+        return data.fileType === fileType.toLowerCase();
+      });
+    }
+
+    // Transform to AssetFile format
+    const assets: AssetFile[] = await Promise.all(
+      assetDocs.map(async (assetDoc) => {
+        const data = assetDoc.data() as Asset;
+        
+        // Get service name from booking if available
+        let serviceName = 'Unknown Service';
+        try {
+          const bookingDoc = await getDoc(doc(db, 'bookings', data.bookingId));
+          if (bookingDoc.exists()) {
+            const bookingData = bookingDoc.data();
+            const serviceDoc = await getDoc(doc(db, 'services', bookingData.serviceId));
+            if (serviceDoc.exists()) {
+              serviceName = (serviceDoc.data() as Service).name;
+            }
+          }
+        } catch (err) {
+          console.error('Failed to fetch service name:', err);
+        }
+
+        return {
+          id: assetDoc.id,
+          bookingId: data.bookingId,
+          serviceName,
+          fileName: data.fileName,
+          fileType: data.fileType.toUpperCase() as any,
+          sizeBytes: data.size,
+          downloadUrl: data.storageUrl || '#',
+          uploadedAt: data.createdAt.toDate().toISOString(),
+        };
+      })
+    );
+
+    return NextResponse.json(assets);
+  } catch (error) {
+    console.error('Failed to fetch assets:', error);
+    return errorResponse('Failed to fetch assets');
   }
-
-  if (bookingId) {
-    filtered = filtered.filter((a) => a.bookingId === bookingId);
-  }
-
-  return NextResponse.json(filtered);
 }

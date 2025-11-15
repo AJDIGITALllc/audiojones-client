@@ -1,8 +1,12 @@
 // src/app/api/client/bookings/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/firebase';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { requireAuth, errorResponse, enforceTenantAccess } from '@/lib/api/middleware';
+import type { Booking, Asset, Service } from '@/lib/types/firestore';
 import type { BookingDetail } from '@/lib/types';
 
-// Mock data (same as in route.ts for consistency)
+// REPLACED WITH FIRESTORE - Old mock data removed
 const mockBookings: BookingDetail[] = [
   {
     id: 'booking-1',
@@ -48,16 +52,102 @@ const mockBookings: BookingDetail[] = [
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const booking = mockBookings.find((b) => b.id === params.id);
+  try {
+    const authResult = await requireAuth(request);
+    if (authResult instanceof Response) return authResult;
+    
+    const { tenantId, userId } = authResult;
+    const { id } = await params;
 
-  if (!booking) {
-    return NextResponse.json(
-      { error: 'Booking not found' },
-      { status: 404 }
+    const bookingDoc = await getDoc(doc(db, 'bookings', id));
+
+    if (!bookingDoc.exists()) {
+      return errorResponse('Booking not found', 404);
+    }
+
+    const bookingData = bookingDoc.data() as Booking;
+
+    if (!enforceTenantAccess(authResult, bookingData.tenantId)) {
+      return errorResponse('Forbidden', 403);
+    }
+
+    if (authResult.role !== 'admin' && bookingData.userId !== userId) {
+      return errorResponse('Forbidden', 403);
+    }
+
+    let serviceName = 'Unknown Service';
+    try {
+      const serviceDoc = await getDoc(doc(db, 'services', bookingData.serviceId));
+      if (serviceDoc.exists()) {
+        serviceName = (serviceDoc.data() as Service).name;
+      }
+    } catch (err) {
+      console.error('Failed to fetch service:', err);
+    }
+
+    const assetsSnap = await getDocs(
+      query(collection(db, 'assets'), where('bookingId', '==', id))
     );
-  }
 
-  return NextResponse.json(booking);
+    const assets: any[] = assetsSnap.docs.map(assetDoc => {
+      const data = assetDoc.data() as Asset;
+      return {
+        id: assetDoc.id,
+        bookingId: data.bookingId,
+        serviceName,
+        fileName: data.fileName,
+        fileType: data.fileType.toUpperCase(),
+        sizeBytes: data.size,
+        downloadUrl: data.storageUrl || '#',
+        uploadedAt: data.createdAt.toDate().toISOString(),
+      };
+    });
+
+    const timeline: any[] = [
+      {
+        id: 'timeline-created',
+        label: 'Booking Created',
+        at: bookingData.createdAt.toDate().toISOString(),
+        type: 'CREATED',
+      },
+    ];
+
+    if (bookingData.status !== 'draft' && bookingData.status !== 'pending') {
+      timeline.push({
+        id: 'timeline-approved',
+        label: 'Approved',
+        at: bookingData.updatedAt.toDate().toISOString(),
+        type: 'APPROVED',
+      });
+    }
+
+    const detail: BookingDetail = {
+      id: bookingDoc.id,
+      tenantId: bookingData.tenantId,
+      serviceId: bookingData.serviceId,
+      serviceName,
+      status: bookingData.status.toUpperCase() as any,
+      source: 'CLIENT_PORTAL',
+      startAt: bookingData.startTime?.toDate().toISOString() || bookingData.scheduledAt?.toDate().toISOString() || '',
+      endAt: bookingData.endTime?.toDate().toISOString() || bookingData.scheduledAt?.toDate().toISOString() || '',
+      scheduledDate: bookingData.scheduledAt?.toDate().toISOString().split('T')[0] || '',
+      totalCost: bookingData.priceCents ? bookingData.priceCents / 100 : 0,
+      createdAt: bookingData.createdAt.toDate().toISOString(),
+      price: bookingData.priceCents ? bookingData.priceCents / 100 : 0,
+      durationMinutes: bookingData.startTime && bookingData.endTime 
+        ? (bookingData.endTime.toMillis() - bookingData.startTime.toMillis()) / (1000 * 60)
+        : 0,
+      notes: bookingData.notes,
+      intakeAnswers: [],
+      assets,
+      timeline,
+    };
+
+    return NextResponse.json(detail);
+  } catch (error) {
+    console.error('Failed to fetch booking detail:', error);
+    return errorResponse('Failed to fetch booking detail');
+  }
 }
