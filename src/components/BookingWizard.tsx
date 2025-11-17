@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { createBooking, uploadBookingAsset } from "@/lib/api/client";
 import { fireAutomationEvent } from "@/lib/automation";
 import type { ServiceSummary } from "@/lib/types";
+import { MODULE_PREFLIGHT, type PreflightItem } from "@/lib/preflight";
 
-type WizardStep = "service" | "details" | "schedule" | "files" | "review" | "payment" | "scheduling-link" | "confirmation";
+type WizardStep = "service" | "details" | "schedule" | "files" | "preflight" | "review" | "payment" | "scheduling-link" | "confirmation";
 
 interface BookingFormData {
   serviceId: string;
@@ -17,6 +18,7 @@ interface BookingFormData {
   bookingId?: string;
   paymentUrl?: string | null;
   paymentProvider?: string;
+  preflightChecked?: Record<string, boolean>;
 }
 
 export default function BookingWizard({
@@ -34,11 +36,15 @@ export default function BookingWizard({
     notes: "",
     scheduledDate: "",
     files: [],
+    preflightChecked: {},
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const steps: WizardStep[] = ["details", "schedule", "files", "review"];
+  // Include preflight step only if service has a module
+  const steps: WizardStep[] = service.module 
+    ? ["details", "schedule", "files", "preflight", "review"]
+    : ["details", "schedule", "files", "review"];
   const currentStepIndex = steps.indexOf(currentStep);
 
   const handleNext = () => {
@@ -184,6 +190,9 @@ export default function BookingWizard({
             )}
             {currentStep === "files" && (
               <StepFiles formData={formData} setFormData={setFormData} />
+            )}
+            {currentStep === "preflight" && service.module && (
+              <StepPreflight formData={formData} setFormData={setFormData} module={service.module} />
             )}
             {currentStep === "review" && (
               <StepReview formData={formData} service={service} />
@@ -415,6 +424,84 @@ function StepFiles({
   );
 }
 
+function StepPreflight({
+  formData,
+  setFormData,
+  module,
+}: {
+  formData: BookingFormData;
+  setFormData: (data: BookingFormData) => void;
+  module: import("@/lib/types").ServiceModule;
+}) {
+  const preflightItems = MODULE_PREFLIGHT[module] || [];
+  
+  const toggleItem = (itemId: string) => {
+    setFormData({
+      ...formData,
+      preflightChecked: {
+        ...formData.preflightChecked,
+        [itemId]: !formData.preflightChecked?.[itemId],
+      },
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-xl font-semibold text-white mb-2">
+          Preflight Checklist
+        </h3>
+        <p className="text-gray-400">
+          Make sure you have these items ready before submitting your booking
+        </p>
+      </div>
+
+      <div className="bg-blue-500/10 border border-blue-500/50 rounded-lg p-4">
+        <div className="flex gap-3">
+          <svg className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-sm text-blue-300">
+            These items help us deliver the best results. Check each item as you prepare it.
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {preflightItems.map((item) => (
+          <label
+            key={item.id}
+            className="flex items-start gap-3 p-4 bg-background rounded-lg hover:bg-gray-900 cursor-pointer transition-colors group"
+          >
+            <input
+              type="checkbox"
+              checked={formData.preflightChecked?.[item.id] || false}
+              onChange={() => toggleItem(item.id)}
+              className="mt-1 w-4 h-4 rounded border-gray-700 bg-gray-800 text-primary focus:ring-primary focus:ring-offset-0"
+            />
+            <div className="flex-1">
+              <span className="text-white group-hover:text-primary transition-colors">
+                {item.label}
+              </span>
+              {item.required && (
+                <span className="ml-2 px-2 py-0.5 bg-red-500/20 text-red-400 text-xs rounded">
+                  Required
+                </span>
+              )}
+            </div>
+          </label>
+        ))}
+      </div>
+
+      <div className="bg-gray-800 rounded-lg p-4">
+        <p className="text-sm text-gray-400">
+          <strong className="text-white">Note:</strong> You can proceed without checking all items, but having them ready ensures a smoother process.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function StepReview({
   formData,
   service,
@@ -494,6 +581,7 @@ function StepPayment({ formData }: { formData: BookingFormData }) {
   };
 
   const isWhop = formData.paymentProvider === 'whop';
+  const hasPaymentUrl = !!formData.paymentUrl;
 
   return (
     <div className="space-y-6">
@@ -513,7 +601,7 @@ function StepPayment({ formData }: { formData: BookingFormData }) {
           <h4 className="text-purple-400 font-medium">Current Status: Awaiting Payment</h4>
         </div>
         <p className="text-sm text-gray-400 ml-5">
-          Your booking will be confirmed once payment is received.
+          Your booking is created but not confirmed until payment is completed {isWhop && "on Whop"}.
         </p>
       </div>
 
@@ -537,18 +625,30 @@ function StepPayment({ formData }: { formData: BookingFormData }) {
       </div>
 
       {/* CTA */}
-      <div className="bg-primary/10 border border-primary/50 rounded-lg p-6 text-center">
-        <button
-          onClick={handleOpenPayment}
-          disabled={!formData.paymentUrl}
-          className="px-6 py-3 bg-primary hover:bg-primary-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isWhop ? "Complete Payment on Whop" : "Complete Payment"}
-        </button>
-        {!formData.paymentUrl && (
-          <p className="mt-2 text-sm text-red-400">Payment URL not available</p>
-        )}
-      </div>
+      {hasPaymentUrl ? (
+        <div className="bg-primary/10 border border-primary/50 rounded-lg p-6 text-center">
+          <button
+            onClick={handleOpenPayment}
+            className="px-6 py-3 bg-primary hover:bg-primary-600 text-white rounded-lg font-medium transition-colors"
+          >
+            {isWhop ? "Complete Payment on Whop" : "Complete Payment"}
+          </button>
+        </div>
+      ) : (
+        <div className="bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-6">
+          <div className="flex gap-3">
+            <svg className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+              <p className="text-yellow-400 font-medium mb-1">Payment link not configured yet</p>
+              <p className="text-sm text-gray-400">
+                We'll send you a payment link manually. You'll receive an email shortly with instructions.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bg-gray-800 rounded-lg p-4">
         <p className="text-sm text-gray-400">

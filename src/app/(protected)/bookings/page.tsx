@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { listBookings, getBookingDetail } from "@/lib/api/client";
 import type { BookingSummary, BookingDetail } from "@/lib/types";
+import ModuleGuide from "@/components/ModuleGuide";
 
 const statusFilters = [
   { value: "ALL", label: "All" },
@@ -44,6 +45,7 @@ export default function BookingsPage() {
   const [bookings, setBookings] = useState<BookingSummary[]>([]);
   const [selectedBooking, setSelectedBooking] = useState<BookingDetail | null>(null);
   const [selectedService, setSelectedService] = useState<import("@/lib/types").ServiceSummary | null>(null);
+  const [selectedModuleGuide, setSelectedModuleGuide] = useState<import("@/lib/types").ServiceModule | null>(null);
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -151,10 +153,19 @@ export default function BookingsPage() {
           booking={selectedBooking}
           service={selectedService}
           loading={detailLoading}
+          onViewModuleGuide={(module) => setSelectedModuleGuide(module)}
           onClose={() => {
             setSelectedBooking(null);
             setSelectedService(null);
           }}
+        />
+      )}
+
+      {/* Module Guide Modal */}
+      {selectedModuleGuide && (
+        <ModuleGuide
+          module={selectedModuleGuide}
+          onClose={() => setSelectedModuleGuide(null)}
         />
       )}
     </div>
@@ -220,11 +231,13 @@ function BookingDetailDrawer({
   booking,
   service,
   loading,
+  onViewModuleGuide,
   onClose,
 }: {
   booking: BookingDetail;
   service: import("@/lib/types").ServiceSummary | null;
   loading: boolean;
+  onViewModuleGuide: (module: import("@/lib/types").ServiceModule) => void;
   onClose: () => void;
 }) {
   const moduleLabels: Record<string, string> = {
@@ -239,6 +252,10 @@ function BookingDetailDrawer({
     "business": "Business",
     "both": "All",
   };
+
+  const isPendingPayment = booking.status === "PENDING_PAYMENT";
+  const isWhop = service?.billingProvider === "whop";
+  const hasPaymentUrl = !!service?.whop?.url;
 
   return (
     <>
@@ -283,6 +300,17 @@ function BookingDetailDrawer({
                     </span>
                   )}
                 </div>
+                {service?.module && (
+                  <button
+                    onClick={() => onViewModuleGuide(service.module!)}
+                    className="mt-2 text-sm text-primary hover:text-primary-600 transition-colors flex items-center gap-1"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    About this module
+                  </button>
+                )}
               </div>
               <button
                 onClick={onClose}
@@ -307,7 +335,7 @@ function BookingDetailDrawer({
             {/* Details */}
             <div className="space-y-6">
               {/* Payment Status - Highlighted for PENDING_PAYMENT */}
-              {booking.status === "PENDING_PAYMENT" && (
+              {isPendingPayment && (
                 <div className="bg-purple-500/10 border border-purple-500/50 rounded-lg p-4">
                   <h3 className="text-purple-400 font-medium mb-2 flex items-center gap-2">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -316,9 +344,9 @@ function BookingDetailDrawer({
                     Payment Required
                   </h3>
                   <p className="text-sm text-gray-300 mb-3">
-                    Complete payment to confirm your booking
+                    Your booking is created but not confirmed until payment is completed{isWhop && " on Whop"}.
                   </p>
-                  {service?.billingProvider === "whop" && service?.whop?.url && (
+                  {hasPaymentUrl && service?.whop?.url ? (
                     <a
                       href={service.whop.url}
                       target="_blank"
@@ -327,7 +355,13 @@ function BookingDetailDrawer({
                     >
                       Complete Payment on Whop
                     </a>
-                  )}
+                  ) : isWhop ? (
+                    <div className="bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-3 mt-2">
+                      <p className="text-sm text-yellow-400">
+                        Payment link not configured yet. We'll send a payment link manually.
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
               )}
 

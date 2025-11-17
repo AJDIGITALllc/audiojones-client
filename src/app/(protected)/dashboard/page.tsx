@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { signOut } from "@/lib/auth";
 import { getDashboardStats, listBookings, listServices } from "@/lib/api/client";
 import type { DashboardStats, BookingSummary, ServiceSummary, ServiceModule } from "@/lib/types";
+import ModuleGuide from "@/components/ModuleGuide";
 
 type ModuleProgress = {
   module: ServiceModule;
@@ -22,6 +23,7 @@ export default function DashboardPage() {
   const [allBookings, setAllBookings] = useState<BookingSummary[]>([]);
   const [services, setServices] = useState<ServiceSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedModuleGuide, setSelectedModuleGuide] = useState<ServiceModule | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -162,7 +164,11 @@ export default function DashboardPage() {
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {moduleProgress.map((module) => (
-                <ModuleCard key={module.module} module={module} />
+                <ModuleCard 
+                  key={module.module} 
+                  module={module} 
+                  onViewGuide={() => setSelectedModuleGuide(module.module)}
+                />
               ))}
             </div>
           </div>
@@ -284,6 +290,14 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Module Guide Modal */}
+      {selectedModuleGuide && (
+        <ModuleGuide
+          module={selectedModuleGuide}
+          onClose={() => setSelectedModuleGuide(null)}
+        />
+      )}
     </div>
   );
 }
@@ -318,7 +332,13 @@ function StatCard({
   );
 }
 
-function ModuleCard({ module }: { module: ModuleProgress }) {
+function ModuleCard({ 
+  module, 
+  onViewGuide 
+}: { 
+  module: ModuleProgress;
+  onViewGuide: () => void;
+}) {
   const statusConfig = {
     "not-started": {
       label: "Not Started",
@@ -352,9 +372,19 @@ function ModuleCard({ module }: { module: ModuleProgress }) {
       
       <h3 className="text-white font-medium text-sm mb-2">{module.label}</h3>
       
-      <p className="text-gray-400 text-xs">
+      <p className="text-gray-400 text-xs mb-3">
         {module.bookingCount} {module.bookingCount === 1 ? "booking" : "bookings"}
       </p>
+
+      <button
+        onClick={onViewGuide}
+        className="w-full px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded text-xs font-medium transition-colors flex items-center justify-center gap-1"
+      >
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        View Guide
+      </button>
     </div>
   );
 }
