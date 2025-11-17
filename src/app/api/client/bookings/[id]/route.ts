@@ -5,6 +5,7 @@ import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firesto
 import { requireAuth, errorResponse, enforceTenantAccess } from '@/lib/api/middleware';
 import type { Booking, Asset, Service } from '@/lib/types/firestore';
 import type { BookingDetail } from '@/lib/types';
+import { logError } from '@/lib/log';
 
 // REPLACED WITH FIRESTORE - Old mock data removed
 const mockBookings: BookingDetail[] = [
@@ -147,7 +148,10 @@ export async function GET(
 
     return NextResponse.json(detail);
   } catch (error) {
-    console.error('Failed to fetch booking detail:', error);
-    return errorResponse('Failed to fetch booking detail');
+    logError('api/client/bookings/[id] GET', error, {
+      url: request.url,
+      method: 'GET',
+    });
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

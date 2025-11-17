@@ -1,27 +1,41 @@
 // src/app/(protected)/dashboard/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { signOut } from "@/lib/auth";
-import { getDashboardStats, listBookings } from "@/lib/api/client";
-import type { DashboardStats, BookingSummary } from "@/lib/types";
+import { getDashboardStats, listBookings, listServices } from "@/lib/api/client";
+import type { DashboardStats, BookingSummary, ServiceSummary, ServiceModule } from "@/lib/types";
+
+type ModuleProgress = {
+  module: ServiceModule;
+  label: string;
+  icon: string;
+  status: "not-started" | "active" | "completed";
+  bookingCount: number;
+};
 
 export default function DashboardPage() {
   const router = useRouter();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [upcomingSessions, setUpcomingSessions] = useState<BookingSummary[]>([]);
+  const [allBookings, setAllBookings] = useState<BookingSummary[]>([]);
+  const [services, setServices] = useState<ServiceSummary[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [statsData, bookingsData] = await Promise.all([
+        const [statsData, approvedBookings, allBookingsData, servicesData] = await Promise.all([
           getDashboardStats(),
           listBookings({ status: "APPROVED" }),
+          listBookings(),
+          listServices(),
         ]);
         setStats(statsData);
-        setUpcomingSessions(bookingsData.slice(0, 3));
+        setUpcomingSessions(approvedBookings.slice(0, 3));
+        setAllBookings(allBookingsData);
+        setServices(servicesData);
       } catch (error) {
         console.error("Failed to load dashboard:", error);
       } finally {
@@ -31,6 +45,50 @@ export default function DashboardPage() {
 
     fetchData();
   }, []);
+
+  // Calculate module progress based on bookings
+  const moduleProgress = useMemo<ModuleProgress[]>(() => {
+    const modules: ModuleProgress[] = [
+      { module: "client-delivery", label: "Client Delivery", icon: "🎵", status: "not-started", bookingCount: 0 },
+      { module: "marketing-automation", label: "Marketing Automation", icon: "📢", status: "not-started", bookingCount: 0 },
+      { module: "ai-optimization", label: "AI Optimization", icon: "🤖", status: "not-started", bookingCount: 0 },
+      { module: "data-intelligence", label: "Data Intelligence", icon: "📊", status: "not-started", bookingCount: 0 },
+    ];
+
+    // Map services to modules
+    const serviceModuleMap = new Map<string, ServiceModule>();
+    services.forEach(service => {
+      if (service.module) {
+        serviceModuleMap.set(service.id, service.module);
+      }
+    });
+
+    // Count bookings per module
+    modules.forEach(moduleItem => {
+      const moduleBookings = allBookings.filter(booking => {
+        const serviceModule = serviceModuleMap.get(booking.serviceId);
+        return serviceModule === moduleItem.module;
+      });
+
+      moduleItem.bookingCount = moduleBookings.length;
+
+      // Determine status
+      const hasCompleted = moduleBookings.some(b => b.status === "COMPLETED");
+      const hasActive = moduleBookings.some(b => 
+        ["PENDING", "PENDING_PAYMENT", "APPROVED", "IN_PROGRESS"].includes(b.status)
+      );
+
+      if (hasCompleted) {
+        moduleItem.status = "completed";
+      } else if (hasActive) {
+        moduleItem.status = "active";
+      } else {
+        moduleItem.status = "not-started";
+      }
+    });
+
+    return modules;
+  }, [allBookings, services]);
 
   async function handleSignOut() {
     await signOut();
@@ -95,6 +153,20 @@ export default function DashboardPage() {
             />
           </div>
         ) : null}
+
+        {/* System Journey Panel */}
+        <div className="mb-8">
+          <div className="bg-background-card rounded-xl p-6">
+            <h2 className="text-xl font-bold text-white mb-4">Your System Journey</h2>
+            <p className="text-gray-400 mb-6">Track your progress across Audio Jones modules</p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {moduleProgress.map((module) => (
+                <ModuleCard key={module.module} module={module} />
+              ))}
+            </div>
+          </div>
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Upcoming Sessions */}
@@ -242,6 +314,47 @@ function StatCard({
         </div>
       </div>
       <div className="text-3xl font-bold text-white">{value}</div>
+    </div>
+  );
+}
+
+function ModuleCard({ module }: { module: ModuleProgress }) {
+  const statusConfig = {
+    "not-started": {
+      label: "Not Started",
+      color: "bg-gray-500/20 text-gray-400 border-gray-500/50",
+      iconColor: "text-gray-500",
+    },
+    "active": {
+      label: "Active",
+      color: "bg-blue-500/20 text-blue-400 border-blue-500/50",
+      iconColor: "text-blue-400",
+    },
+    "completed": {
+      label: "Completed",
+      color: "bg-green-500/20 text-green-400 border-green-500/50",
+      iconColor: "text-green-400",
+    },
+  };
+
+  const config = statusConfig[module.status];
+
+  return (
+    <div className="bg-background rounded-xl p-4 border border-gray-800 hover:border-gray-700 transition-colors">
+      <div className="flex items-start justify-between mb-3">
+        <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-2xl ${config.iconColor}`}>
+          {module.icon}
+        </div>
+        <span className={`px-2 py-1 rounded text-xs font-medium border ${config.color}`}>
+          {config.label}
+        </span>
+      </div>
+      
+      <h3 className="text-white font-medium text-sm mb-2">{module.label}</h3>
+      
+      <p className="text-gray-400 text-xs">
+        {module.bookingCount} {module.bookingCount === 1 ? "booking" : "bookings"}
+      </p>
     </div>
   );
 }

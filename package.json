@@ -1,32 +1,36 @@
 {
-  "name": "audiojones-client",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
-  },
-  "dependencies": {
-    "clsx": "^2.1.1",
-    "firebase": "^12.6.0",
-    "lucide-react": "^0.553.0",
-    "next": "16.0.3",
-    "react": "19.2.0",
-    "react-dom": "19.2.0",
-    "tailwind-merge": "^3.4.0",
-    "tailwindcss-animate": "^1.0.7"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "babel-plugin-react-compiler": "1.0.0",
-    "eslint": "^9",
-    "eslint-config-next": "16.0.3",
-    "tailwindcss": "^4",
-    "typescript": "^5"
-  }
+    "name":  "audiojones-client",
+    "version":  "0.1.0",
+    "private":  true,
+    "scripts":  {
+                    "dev":  "next dev",
+                    "build":  "npm run validate:env \u0026\u0026 next build",
+                    "start":  "next start",
+                    "lint":  "eslint",
+                    "validate:env":  "tsx scripts/validate-env.ts"
+                },
+    "dependencies":  {
+                         "clsx":  "^2.1.1",
+                         "firebase":  "^12.6.0",
+                         "lucide-react":  "^0.553.0",
+                         "next":  "16.0.3",
+                         "react":  "19.2.0",
+                         "react-dom":  "19.2.0",
+                         "tailwind-merge":  "^3.4.0",
+                         "tailwindcss-animate":  "^1.0.7"
+                     },
+    "devDependencies":  {
+                            "@tailwindcss/postcss":  "^4",
+                            "@types/node":  "^20.19.25",
+                            "@types/react":  "^19",
+                            "@types/react-dom":  "^19",
+                            "ajv":  "^8.17.1",
+                            "babel-plugin-react-compiler":  "1.0.0",
+                            "dotenv":  "^17.2.3",
+                            "eslint":  "^9",
+                            "eslint-config-next":  "16.0.3",
+                            "tailwindcss":  "^4",
+                            "tsx":  "^4.20.6",
+                            "typescript":  "^5"
+                        }
 }

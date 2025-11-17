@@ -5,6 +5,7 @@ import { collection, getDocs, query, where, orderBy, doc, getDoc } from 'firebas
 import { requireAuth, errorResponse } from '@/lib/api/middleware';
 import type { Asset, Service } from '@/lib/types/firestore';
 import type { AssetFile } from '@/lib/types';
+import { logError } from '@/lib/log';
 
 export async function GET(request: NextRequest) {
   try {
@@ -80,7 +81,10 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(assets);
   } catch (error) {
-    console.error('Failed to fetch assets:', error);
-    return errorResponse('Failed to fetch assets');
+    logError('api/client/assets GET', error, {
+      url: request.url,
+      method: 'GET',
+    });
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

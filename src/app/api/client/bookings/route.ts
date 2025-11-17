@@ -1,10 +1,11 @@
 // src/app/api/client/bookings/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, addDoc, query, where, Timestamp, orderBy, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, addDoc, query, where, Timestamp, orderBy, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { requireAuth, errorResponse } from '@/lib/api/middleware';
-import type { Booking, Service } from '@/lib/types/firestore';
+import { Booking, Service, BookingStatusEvent, BookingStatus } from '@/lib/types/firestore';
 import type { BookingSummary } from '@/lib/types';
+import { logError } from '@/lib/log';
 
 export async function GET(request: NextRequest) {
   try {
@@ -69,8 +70,11 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(bookings);
   } catch (error) {
-    console.error('Failed to fetch bookings:', error);
-    return errorResponse('Failed to fetch bookings');
+    logError('api/client/bookings GET', error, {
+      url: request.url,
+      method: 'GET',
+    });
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
 
@@ -82,25 +86,65 @@ export async function POST(request: NextRequest) {
     const { userId, tenantId } = authResult;
     const body = await request.json();
 
+    // Fetch service to get billing info
+    const serviceDoc = await getDoc(doc(db, 'services', body.serviceId));
+    const service = serviceDoc.data() as Service;
+
+    // Determine initial status based on payment requirements
+    let initialStatus: BookingStatus = body.requiresApproval ? 'pending' : 'approved';
+    if (service?.billingProvider === 'whop' || service?.billingProvider === 'stripe') {
+      initialStatus = 'pending_payment';
+    }
+    
+    const statusHistory: BookingStatusEvent[] = [{
+      status: initialStatus,
+      changedAt: new Date().toISOString(),
+      changedByUserId: userId,
+    }];
+
     const bookingData: Omit<Booking, 'id'> = {
       tenantId,
       userId,
       serviceId: body.serviceId,
-      status: body.requiresApproval ? 'pending' : 'approved',
+      status: initialStatus,
       scheduledAt: body.scheduledAt ? Timestamp.fromDate(new Date(body.scheduledAt)) : null,
       notes: body.notes || '',
-      priceCents: body.priceCents,
+      priceCents: body.priceCents || service?.priceCents || service?.basePrice,
       startTime: body.startTime ? Timestamp.fromDate(new Date(body.startTime)) : undefined,
       endTime: body.endTime ? Timestamp.fromDate(new Date(body.endTime)) : undefined,
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
+      statusHistory,
+      paymentStatus: 'unpaid',
+      paymentProvider: service?.billingProvider || 'none',
+      paymentExternalId: null,
+      paymentUrl: null,
     };
 
     const docRef = await addDoc(collection(db, 'bookings'), bookingData);
 
-    return NextResponse.json({ bookingId: docRef.id }, { status: 201 });
+    // Get payment URL for supported providers
+    let paymentUrl = null;
+    if (service?.billingProvider === 'whop' && service?.whop?.url) {
+      // Use real Whop checkout URL if available
+      paymentUrl = service.whop.url;
+      await updateDoc(doc(db, 'bookings', docRef.id), { paymentUrl });
+    } else if (service?.billingProvider === 'stripe') {
+      // Placeholder for Stripe - would integrate with Stripe Checkout API
+      paymentUrl = `https://pay.example.com/booking/${docRef.id}`;
+      await updateDoc(doc(db, 'bookings', docRef.id), { paymentUrl });
+    }
+
+    return NextResponse.json({ 
+      bookingId: docRef.id,
+      paymentUrl,
+      paymentProvider: service?.billingProvider || 'none',
+    }, { status: 201 });
   } catch (error) {
-    console.error('Failed to create booking:', error);
-    return errorResponse('Failed to create booking');
+    logError('api/client/bookings POST', error, {
+      url: request.url,
+      method: 'POST',
+    });
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

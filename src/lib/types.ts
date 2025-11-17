@@ -3,6 +3,7 @@
 export type BookingStatus =
   | 'DRAFT'
   | 'PENDING'
+  | 'PENDING_PAYMENT'
   | 'PENDING_ADMIN'
   | 'APPROVED'
   | 'IN_PROGRESS'
@@ -71,15 +72,35 @@ export interface DashboardStats {
   upcomingBookings: BookingSummary[];
 }
 
+export type BillingProvider = "whop" | "stripe" | "manual" | "none";
+
+export interface WhopConfig {
+  productId?: string;
+  url?: string;
+  syncEnabled?: boolean;
+}
+
+export type ServiceModule = "client-delivery" | "marketing-automation" | "ai-optimization" | "data-intelligence";
+export type ServicePersona = "creator" | "business" | "both";
+
 export interface ServiceSummary {
   id: string;
   tenantId: string;
   name: string;
   description: string;
   category: 'ARTIST' | 'CONSULTING' | 'STRATEGY' | 'PRODUCTION' | 'SMB' | 'OTHER';
+  module?: ServiceModule;
+  persona?: ServicePersona;
   iconEmoji?: string;
   durationLabel?: string;
   modeLabel?: string;
   badgeLabel?: string;
   priceLabel: string;
+  schedulingProvider?: string;
+  schedulingUrl?: string | null;
+  defaultDurationMinutes?: number | null;
+  billingProvider?: BillingProvider;
+  whop?: WhopConfig;
+  priceCents?: number;
+  currency?: string;
 }

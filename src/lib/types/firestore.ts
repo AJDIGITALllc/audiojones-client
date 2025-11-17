@@ -45,6 +45,16 @@ export interface Tenant {
 // ============================================================================
 
 export type ServiceCategory = "artist" | "consulting" | "podcast" | "other";
+export type SchedulingProvider = "calcom" | "calendly" | "other" | "none";
+export type BillingProvider = "whop" | "stripe" | "manual" | "none";
+export type ServiceModule = "client-delivery" | "marketing-automation" | "ai-optimization" | "data-intelligence";
+export type ServicePersona = "creator" | "business" | "both";
+
+export interface WhopConfig {
+  productId?: string;
+  url?: string;
+  syncEnabled?: boolean;
+}
 
 export interface Service {
   id: string;
@@ -56,6 +66,16 @@ export interface Service {
   active: boolean;
   duration?: number; // minutes
   requiresApproval?: boolean;
+  schedulingProvider?: SchedulingProvider;
+  schedulingUrl?: string | null;
+  defaultDurationMinutes?: number | null;
+  billingProvider?: BillingProvider;
+  billingProductId?: string | null;
+  priceCents?: number | null;
+  currency?: string | null;
+  whop?: WhopConfig;
+  module?: ServiceModule;
+  persona?: ServicePersona;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -67,11 +87,21 @@ export interface Service {
 export type BookingStatus =
   | "draft"
   | "pending"
+  | "pending_payment"
   | "approved"
   | "in_progress"
   | "completed"
   | "cancelled"
   | "declined";
+
+export interface BookingStatusEvent {
+  status: BookingStatus;
+  changedAt: string; // ISO timestamp
+  changedByUserId?: string;
+  note?: string;
+}
+
+export type PaymentStatus = "unpaid" | "pending" | "paid" | "refunded";
 
 export interface Booking {
   id: string;
@@ -87,6 +117,11 @@ export interface Booking {
   endTime?: Timestamp;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  statusHistory?: BookingStatusEvent[];
+  paymentStatus?: PaymentStatus;
+  paymentProvider?: BillingProvider;
+  paymentExternalId?: string | null;
+  paymentUrl?: string | null;
 }
 
 // ============================================================================

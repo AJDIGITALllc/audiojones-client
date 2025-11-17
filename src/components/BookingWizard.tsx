@@ -6,7 +6,7 @@ import { createBooking, uploadBookingAsset } from "@/lib/api/client";
 import { fireAutomationEvent } from "@/lib/automation";
 import type { ServiceSummary } from "@/lib/types";
 
-type WizardStep = "service" | "details" | "schedule" | "files" | "review";
+type WizardStep = "service" | "details" | "schedule" | "files" | "review" | "payment" | "scheduling-link" | "confirmation";
 
 interface BookingFormData {
   serviceId: string;
@@ -14,6 +14,9 @@ interface BookingFormData {
   notes: string;
   scheduledDate: string;
   files: File[];
+  bookingId?: string;
+  paymentUrl?: string | null;
+  paymentProvider?: string;
 }
 
 export default function BookingWizard({
@@ -63,6 +66,14 @@ export default function BookingWizard({
         intake: {
           notes: formData.notes,
         },
+      }) as any;
+
+      // Store booking ID and payment info for later steps
+      setFormData({ 
+        ...formData, 
+        bookingId: response.bookingId,
+        paymentUrl: response.paymentUrl || null,
+        paymentProvider: response.paymentProvider || 'none',
       });
 
       // Upload files
@@ -83,9 +94,14 @@ export default function BookingWizard({
         },
       });
 
-      // Redirect to bookings
-      router.push("/bookings");
-      onClose();
+      // Determine next step based on payment and scheduling
+      if (response.paymentUrl && (response.paymentProvider === 'whop' || response.paymentProvider === 'stripe')) {
+        setCurrentStep("payment");
+      } else if (service.schedulingUrl) {
+        setCurrentStep("scheduling-link");
+      } else {
+        setCurrentStep("confirmation");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create booking");
     } finally {
@@ -172,17 +188,28 @@ export default function BookingWizard({
             {currentStep === "review" && (
               <StepReview formData={formData} service={service} />
             )}
+            {currentStep === "payment" && (
+              <StepPayment formData={formData} />
+            )}
+            {currentStep === "scheduling-link" && (
+              <StepSchedulingLink service={service} />
+            )}
+            {currentStep === "confirmation" && (
+              <StepConfirmation formData={formData} />
+            )}
           </div>
 
           {/* Footer */}
           <div className="p-6 border-t border-gray-800 flex items-center justify-between">
-            <button
-              onClick={handleBack}
-              disabled={currentStepIndex === 0}
-              className="px-6 py-2 bg-background hover:bg-gray-900 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Back
-            </button>
+            {currentStep !== "payment" && currentStep !== "scheduling-link" && currentStep !== "confirmation" && (
+              <button
+                onClick={handleBack}
+                disabled={currentStepIndex === 0}
+                className="px-6 py-2 bg-background hover:bg-gray-900 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Back
+              </button>
+            )}
             {currentStep === "review" ? (
               <button
                 onClick={handleSubmit}
@@ -190,6 +217,36 @@ export default function BookingWizard({
                 className="px-6 py-2 bg-primary hover:bg-primary-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50"
               >
                 {loading ? "Submitting..." : "Submit Booking"}
+              </button>
+            ) : currentStep === "payment" ? (
+              <button
+                onClick={() => {
+                  if (service.schedulingUrl) {
+                    setCurrentStep("scheduling-link");
+                  } else {
+                    setCurrentStep("confirmation");
+                  }
+                }}
+                className="px-6 py-2 bg-primary hover:bg-primary-600 text-white rounded-lg font-medium transition-colors"
+              >
+                Continue
+              </button>
+            ) : currentStep === "scheduling-link" ? (
+              <button
+                onClick={() => setCurrentStep("confirmation")}
+                className="px-6 py-2 bg-primary hover:bg-primary-600 text-white rounded-lg font-medium transition-colors"
+              >
+                Continue
+              </button>
+            ) : currentStep === "confirmation" ? (
+              <button
+                onClick={() => {
+                  router.push("/bookings");
+                  onClose();
+                }}
+                className="px-6 py-2 bg-primary hover:bg-primary-600 text-white rounded-lg font-medium transition-colors"
+              >
+                Close
               </button>
             ) : (
               <button
@@ -425,6 +482,197 @@ function StepReview({
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+function StepPayment({ formData }: { formData: BookingFormData }) {
+  const handleOpenPayment = () => {
+    if (formData.paymentUrl) {
+      window.open(formData.paymentUrl, '_blank');
+    }
+  };
+
+  const isWhop = formData.paymentProvider === 'whop';
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-xl font-semibold text-white mb-2">
+          Complete Payment {isWhop && "via Whop"}
+        </h3>
+        <p className="text-gray-400">
+          Your booking has been created and is awaiting payment.
+        </p>
+      </div>
+
+      {/* Current Status */}
+      <div className="bg-purple-500/10 border border-purple-500/50 rounded-lg p-4">
+        <div className="flex items-center gap-3 mb-2">
+          <span className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
+          <h4 className="text-purple-400 font-medium">Current Status: Awaiting Payment</h4>
+        </div>
+        <p className="text-sm text-gray-400 ml-5">
+          Your booking will be confirmed once payment is received.
+        </p>
+      </div>
+
+      {/* Payment Instructions */}
+      <div className="bg-background rounded-lg p-6">
+        <h4 className="text-white font-medium mb-3">Next Steps:</h4>
+        <ol className="space-y-2 text-sm text-gray-400">
+          <li className="flex gap-2">
+            <span className="text-primary font-bold">1.</span>
+            <span>Click the button below to complete payment {isWhop && "on Whop"}</span>
+          </li>
+          <li className="flex gap-2">
+            <span className="text-primary font-bold">2.</span>
+            <span>Once payment is confirmed, your booking status will update automatically</span>
+          </li>
+          <li className="flex gap-2">
+            <span className="text-primary font-bold">3.</span>
+            <span>You'll receive confirmation and can schedule your session</span>
+          </li>
+        </ol>
+      </div>
+
+      {/* CTA */}
+      <div className="bg-primary/10 border border-primary/50 rounded-lg p-6 text-center">
+        <button
+          onClick={handleOpenPayment}
+          disabled={!formData.paymentUrl}
+          className="px-6 py-3 bg-primary hover:bg-primary-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isWhop ? "Complete Payment on Whop" : "Complete Payment"}
+        </button>
+        {!formData.paymentUrl && (
+          <p className="mt-2 text-sm text-red-400">Payment URL not available</p>
+        )}
+      </div>
+
+      <div className="bg-gray-800 rounded-lg p-4">
+        <p className="text-sm text-gray-400">
+          <strong className="text-white">Note:</strong> You can view your booking in "My Bookings" at any time. The payment link will remain available there until payment is completed.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function StepSchedulingLink({ service }: { service: ServiceSummary }) {
+  const handleOpenScheduling = () => {
+    if (service.schedulingUrl) {
+      window.open(service.schedulingUrl, '_blank');
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-xl font-semibold text-white mb-2">
+          Schedule Your Session
+        </h3>
+        <p className="text-gray-400">
+          Your booking request has been created. Next, pick a time for your session.
+        </p>
+      </div>
+
+      <div className="bg-primary/10 border border-primary/50 rounded-lg p-6 text-center">
+        <p className="text-white mb-4">
+          Click the button below to open the scheduling page and select your preferred time slot.
+        </p>
+        <button
+          onClick={handleOpenScheduling}
+          className="px-6 py-3 bg-primary hover:bg-primary-600 text-white rounded-lg font-medium transition-colors"
+        >
+          Open Scheduling Page
+        </button>
+      </div>
+
+      <div className="bg-gray-800 rounded-lg p-4">
+        <p className="text-sm text-gray-400">
+          <strong className="text-white">Note:</strong> After selecting your time, you can close this window and view your booking in "My Bookings".
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function StepConfirmation({ formData }: { formData?: BookingFormData }) {
+  const router = useRouter();
+
+  return (
+    <div className="space-y-6 text-center py-8">
+      <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto">
+        <svg
+          className="w-8 h-8 text-green-400"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M5 13l4 4L19 7"
+          />
+        </svg>
+      </div>
+
+      <div>
+        <h3 className="text-2xl font-semibold text-white mb-2">
+          Booking Created Successfully!
+        </h3>
+        <p className="text-gray-400">
+          Your booking has been created and is ready for review.
+        </p>
+      </div>
+
+      {/* Status Summary */}
+      <div className="bg-background rounded-lg p-6 text-left max-w-md mx-auto">
+        <h4 className="text-white font-medium mb-3">Booking Summary</h4>
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-400">Booking ID:</span>
+            <span className="text-white font-mono">{formData?.bookingId?.slice(0, 8) || "N/A"}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-400">Status:</span>
+            <span className="text-purple-400 font-medium">
+              {formData?.paymentProvider === 'whop' || formData?.paymentProvider === 'stripe' 
+                ? "Awaiting Payment" 
+                : "Pending Review"}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Next Steps */}
+      <div className="bg-blue-500/10 border border-blue-500/50 rounded-lg p-6 text-left max-w-md mx-auto">
+        <h4 className="text-blue-400 font-medium mb-3">What's Next?</h4>
+        <ol className="space-y-2 text-sm text-gray-400">
+          {(formData?.paymentProvider === 'whop' || formData?.paymentProvider === 'stripe') ? (
+            <>
+              <li>✓ Complete payment via the provided link</li>
+              <li>✓ Booking will be confirmed automatically</li>
+              <li>✓ Schedule your session</li>
+            </>
+          ) : (
+            <>
+              <li>✓ Our team will review your request</li>
+              <li>✓ You'll receive confirmation via email</li>
+              <li>✓ Then you can schedule your session</li>
+            </>
+          )}
+        </ol>
+      </div>
+
+      <button
+        onClick={() => router.push('/bookings')}
+        className="px-6 py-3 bg-primary hover:bg-primary-600 text-white rounded-lg font-medium transition-colors"
+      >
+        View My Bookings
+      </button>
     </div>
   );
 }

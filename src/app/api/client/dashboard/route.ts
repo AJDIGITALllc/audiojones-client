@@ -5,6 +5,7 @@ import { collection, getDocs, query, where, orderBy, limit, doc, getDoc } from '
 import { requireAuth, errorResponse } from '@/lib/api/middleware';
 import type { Booking, Asset, Service } from '@/lib/types/firestore';
 import type { DashboardStats, BookingSummary } from '@/lib/types';
+import { logError } from '@/lib/log';
 
 export async function GET(request: NextRequest) {
   try {
@@ -114,7 +115,10 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(stats);
   } catch (error) {
-    console.error('Failed to fetch dashboard stats:', error);
-    return errorResponse('Failed to fetch dashboard stats');
+    logError('api/client/dashboard GET', error, {
+      url: request.url,
+      method: 'GET',
+    });
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
