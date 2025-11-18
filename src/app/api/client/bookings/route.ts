@@ -6,6 +6,7 @@ import { requireAuth, errorResponse } from '@/lib/api/middleware';
 import { Booking, Service, BookingStatusEvent, BookingStatus } from '@/lib/types/firestore';
 import type { BookingSummary } from '@/lib/types';
 import { logError } from '@/lib/log';
+import { buildEvent, emitEvent } from '@/lib/events';
 
 export async function GET(request: NextRequest) {
   try {
@@ -123,6 +124,23 @@ export async function POST(request: NextRequest) {
 
     const docRef = await addDoc(collection(db, 'bookings'), bookingData);
 
+    // Emit booking.created event
+    const moduleIds = service?.module ? [service.module] : undefined;
+    await emitEvent(buildEvent({
+      name: 'booking.created',
+      tenantId,
+      userId,
+      moduleIds,
+      payload: {
+        bookingId: docRef.id,
+        serviceId: body.serviceId,
+        status: initialStatus,
+        priceCents: bookingData.priceCents,
+        currency: service?.currency,
+        billingProvider: service?.billingProvider,
+      },
+    }));
+
     // Get payment URL for supported providers
     let paymentUrl = null;
     if (service?.billingProvider === 'whop' && service?.whop?.url) {
@@ -133,6 +151,22 @@ export async function POST(request: NextRequest) {
       // Placeholder for Stripe - would integrate with Stripe Checkout API
       paymentUrl = `https://pay.example.com/booking/${docRef.id}`;
       await updateDoc(doc(db, 'bookings', docRef.id), { paymentUrl });
+    }
+
+    // Emit payment.intent_created if payment is required
+    if ((service?.billingProvider === 'whop' || service?.billingProvider === 'stripe') && paymentUrl) {
+      await emitEvent(buildEvent({
+        name: 'payment.intent_created',
+        tenantId,
+        userId,
+        moduleIds,
+        payload: {
+          bookingId: docRef.id,
+          serviceId: body.serviceId,
+          billingProvider: service.billingProvider,
+          paymentUrl,
+        },
+      }));
     }
 
     return NextResponse.json({ 

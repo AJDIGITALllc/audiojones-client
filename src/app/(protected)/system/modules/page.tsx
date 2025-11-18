@@ -156,7 +156,7 @@ export default function ModulesPage() {
 
                   {/* Description */}
                   <p className="text-gray-400 text-sm mb-4">
-                    {module.description}
+                    {module.shortDescription}
                   </p>
 
                   {/* Stats */}
@@ -220,3 +220,4 @@ export default function ModulesPage() {
     </div>
   );
 }
+

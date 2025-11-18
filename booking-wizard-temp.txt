@@ -1,12 +1,12 @@
-"use client";
+﻿"use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createBooking, uploadBookingAsset } from "@/lib/api/client";
 import { fireAutomationEvent } from "@/lib/automation";
 import type { ServiceSummary } from "@/lib/types";
-import { MODULES, type ModuleId } from "@/config/modules";
-import { loadPreflightState, savePreflightState } from "@/lib/preflight-storage";
+import { MODULE_PREFLIGHT, type PreflightItem } from "@/lib/preflight";
+
 type WizardStep = "service" | "details" | "schedule" | "files" | "preflight" | "review" | "payment" | "scheduling-link" | "confirmation";
 
 interface BookingFormData {
@@ -433,7 +433,7 @@ function StepPreflight({
   setFormData: (data: BookingFormData) => void;
   module: import("@/lib/types").ServiceModule;
 }) {
-  const preflightItems = MODULES[module as ModuleId]?.preflightChecklist || [];
+  const preflightItems = MODULE_PREFLIGHT[module] || [];
   
   const toggleItem = (itemId: string) => {
     setFormData({
@@ -753,15 +753,15 @@ function StepConfirmation({ formData }: { formData?: BookingFormData }) {
         <ol className="space-y-2 text-sm text-gray-400">
           {(formData?.paymentProvider === 'whop' || formData?.paymentProvider === 'stripe') ? (
             <>
-              <li>✓ Complete payment via the provided link</li>
-              <li>✓ Booking will be confirmed automatically</li>
-              <li>✓ Schedule your session</li>
+              <li>âœ“ Complete payment via the provided link</li>
+              <li>âœ“ Booking will be confirmed automatically</li>
+              <li>âœ“ Schedule your session</li>
             </>
           ) : (
             <>
-              <li>✓ Our team will review your request</li>
-              <li>✓ You'll receive confirmation via email</li>
-              <li>✓ Then you can schedule your session</li>
+              <li>âœ“ Our team will review your request</li>
+              <li>âœ“ You'll receive confirmation via email</li>
+              <li>âœ“ Then you can schedule your session</li>
             </>
           )}
         </ol>

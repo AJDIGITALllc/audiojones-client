@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createBooking, uploadBookingAsset } from "@/lib/api/client";
 import { fireAutomationEvent } from "@/lib/automation";
 import type { ServiceSummary } from "@/lib/types";
-import { MODULES, type ModuleId } from "@/config/modules";
-import { loadPreflightState, savePreflightState } from "@/lib/preflight-storage";
+import { MODULE_PREFLIGHT, type PreflightItem } from "@/lib/preflight";
+
 type WizardStep = "service" | "details" | "schedule" | "files" | "preflight" | "review" | "payment" | "scheduling-link" | "confirmation";
 
 interface BookingFormData {
@@ -433,7 +433,7 @@ function StepPreflight({
   setFormData: (data: BookingFormData) => void;
   module: import("@/lib/types").ServiceModule;
 }) {
-  const preflightItems = MODULES[module as ModuleId]?.preflightChecklist || [];
+  const preflightItems = MODULE_PREFLIGHT[module] || [];
   
   const toggleItem = (itemId: string) => {
     setFormData({

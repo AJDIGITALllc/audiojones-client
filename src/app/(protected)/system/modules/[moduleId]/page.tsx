@@ -118,7 +118,7 @@ export default function ModuleDetailPage() {
           <span className="text-5xl">{module.icon}</span>
           <div>
             <h1 className="text-3xl font-bold text-white mb-2">{module.name}</h1>
-            <p className="text-gray-400">{module.description}</p>
+            <p className="text-gray-400">{module.shortDescription}</p>
           </div>
         </div>
 
