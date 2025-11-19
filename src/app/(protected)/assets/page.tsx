@@ -4,20 +4,18 @@ import { useState, useEffect } from "react";
 import { listAssets } from "@/lib/api/client";
 import type { AssetFile } from "@/lib/types";
 
-const typeFilters = [
-  { value: "ALL", label: "All Files" },
-  { value: "REFERENCE", label: "Reference" },
-  { value: "ROUGH_MIX", label: "Rough Mix" },
-  { value: "FINAL_MIX", label: "Final Mix" },
-  { value: "MASTER", label: "Master" },
-  { value: "STEMS", label: "Stems" },
-  { value: "OTHER", label: "Other" },
+const categoryFilters = [
+  { value: "all", label: "All Categories" },
+  { value: "artist-services", label: "Artist Services" },
+  { value: "podcast-production", label: "Podcast Production" },
+  { value: "personal-brand", label: "Personal Brand" },
+  { value: "other", label: "Other" },
 ];
 
 export default function AssetsPage() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [typeFilter, setTypeFilter] = useState("ALL");
-  const [assets, setAssets] = useState<AssetFile[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [assets, setAssets] = useState<(AssetFile & { category?: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,9 +24,9 @@ export default function AssetsPage() {
       try {
         setLoading(true);
         setError(null);
-        const params = typeFilter !== "ALL" ? { type: typeFilter } : undefined;
+        const params = categoryFilter !== "all" ? { category: categoryFilter } : undefined;
         const data = await listAssets(params);
-        setAssets(data);
+        setAssets(data as any);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load assets");
       } finally {
@@ -37,7 +35,7 @@ export default function AssetsPage() {
     };
 
     fetchAssets();
-  }, [typeFilter]);
+  }, [categoryFilter]);
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -100,14 +98,14 @@ export default function AssetsPage() {
           </div>
         </div>
 
-        {/* Type Filters */}
+        {/* Category Filters */}
         <div className="flex gap-2 mb-8 overflow-x-auto pb-2">
-          {typeFilters.map((filter) => (
+          {categoryFilters.map((filter) => (
             <button
               key={filter.value}
-              onClick={() => setTypeFilter(filter.value)}
+              onClick={() => setCategoryFilter(filter.value)}
               className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-                typeFilter === filter.value
+                categoryFilter === filter.value
                   ? "bg-primary text-white"
                   : "bg-background-card text-gray-400 hover:bg-gray-800"
               }`}
@@ -140,10 +138,18 @@ export default function AssetsPage() {
         ) : error ? (
           <div className="bg-red-900/20 border border-red-500/50 rounded-xl p-6 text-center">
             <p className="text-red-400">{error}</p>
+            <p className="text-sm text-gray-500 mt-2">
+              {error.includes("UNAUTHENTICATED") 
+                ? "Please sign in again to continue." 
+                : error.includes("FORBIDDEN")
+                ? "You don't have access to view assets."
+                : "Please try again later."}
+            </p>
           </div>
         ) : assets.length === 0 ? (
           <div className="bg-background-card rounded-xl p-12 text-center">
-            <p className="text-gray-400 text-lg">No assets found</p>
+            <p className="text-gray-400 text-lg">No files yet for this category</p>
+            <p className="text-gray-500 text-sm mt-2">Assets will appear here once you upload files to your bookings.</p>
           </div>
         ) : viewMode === "grid" ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

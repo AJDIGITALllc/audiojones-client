@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
       url: request.url,
       method: 'GET',
     });
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return errorResponse('INTERNAL_ERROR', 500, 'Failed to fetch bookings');
   }
 }
 
@@ -179,6 +179,81 @@ export async function POST(request: NextRequest) {
       url: request.url,
       method: 'POST',
     });
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return errorResponse('INTERNAL_ERROR', 500, 'Failed to create booking');
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const authResult = await requireAuth(request);
+    if (authResult instanceof Response) return authResult;
+    
+    const { userId, tenantId } = authResult;
+    const body = await request.json();
+    const { bookingId, status, scheduledAt } = body;
+
+    if (!bookingId) {
+      return errorResponse('BAD_REQUEST', 400, 'bookingId is required');
+    }
+
+    // Fetch existing booking
+    const bookingRef = doc(db, 'bookings', bookingId);
+    const bookingDoc = await getDoc(bookingRef);
+
+    if (!bookingDoc.exists()) {
+      return errorResponse('NOT_FOUND', 404, 'Booking not found');
+    }
+
+    const booking = bookingDoc.data() as Booking;
+
+    // Ensure user owns this booking
+    if (booking.userId !== userId || booking.tenantId !== tenantId) {
+      return errorResponse('FORBIDDEN', 403, 'Not authorized to modify this booking');
+    }
+
+    const updates: Partial<Booking> = {
+      updatedAt: Timestamp.now(),
+    };
+
+    // Handle status change (e.g., cancel)
+    if (status) {
+      const oldStatus = booking.status;
+      updates.status = status.toLowerCase() as BookingStatus;
+      
+      // Update status history
+      const statusEvent: BookingStatusEvent = {
+        status: updates.status,
+        changedAt: new Date().toISOString(),
+        changedByUserId: userId,
+      };
+      updates.statusHistory = [...(booking.statusHistory || []), statusEvent];
+
+      // Emit booking.status_updated event
+      await emitEvent(buildEvent({
+        name: 'booking.status_updated',
+        tenantId,
+        userId,
+        payload: {
+          bookingId,
+          oldStatus,
+          newStatus: updates.status,
+        },
+      }));
+    }
+
+    // Handle reschedule
+    if (scheduledAt) {
+      updates.scheduledAt = Timestamp.fromDate(new Date(scheduledAt));
+    }
+
+    await updateDoc(bookingRef, updates);
+
+    return NextResponse.json({ success: true, bookingId });
+  } catch (error) {
+    logError('api/client/bookings PATCH', error, {
+      url: request.url,
+      method: 'PATCH',
+    });
+    return errorResponse('INTERNAL_ERROR', 500, 'Failed to update booking');
   }
 }

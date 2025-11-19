@@ -145,6 +145,25 @@ export interface Asset {
 }
 
 // ============================================================================
+// PROJECT MANAGEMENT
+// ============================================================================
+
+export type ProjectType = "podcast" | "website" | "music" | "consulting" | "other";
+export type ProjectStatus = "active" | "archived";
+
+export interface Project {
+  id: string;
+  tenantId: string;
+  userId: string;
+  name: string;
+  description: string;
+  type: ProjectType;
+  status: ProjectStatus;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+// ============================================================================
 // HELPER TYPES FOR API RESPONSES
 // ============================================================================
 

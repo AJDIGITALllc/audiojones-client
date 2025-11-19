@@ -65,17 +65,17 @@ export async function GET(
     const bookingDoc = await getDoc(doc(db, 'bookings', id));
 
     if (!bookingDoc.exists()) {
-      return errorResponse('Booking not found', 404);
+      return errorResponse('NOT_FOUND', 404, 'Booking not found');
     }
 
     const bookingData = bookingDoc.data() as Booking;
 
     if (!enforceTenantAccess(authResult, bookingData.tenantId)) {
-      return errorResponse('Forbidden', 403);
+      return errorResponse('FORBIDDEN', 403, 'Access denied');
     }
 
     if (authResult.role !== 'admin' && bookingData.userId !== userId) {
-      return errorResponse('Forbidden', 403);
+      return errorResponse('FORBIDDEN', 403, 'Access denied');
     }
 
     let serviceName = 'Unknown Service';
@@ -152,6 +152,6 @@ export async function GET(
       url: request.url,
       method: 'GET',
     });
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return errorResponse('INTERNAL_ERROR', 500, 'Failed to fetch booking details');
   }
 }

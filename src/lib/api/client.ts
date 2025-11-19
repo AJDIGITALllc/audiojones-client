@@ -1,20 +1,44 @@
 // src/lib/api/client.ts
+import { auth } from '@/lib/firebase';
 import type { BookingSummary, BookingDetail, AssetFile, DashboardStats } from '@/lib/types';
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? '/api';
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  // Get Firebase ID token if user is authenticated
+  let token: string | null = null;
+  if (auth.currentUser) {
+    try {
+      token = await auth.currentUser.getIdToken();
+    } catch (error) {
+      console.error('Failed to get Firebase ID token:', error);
+    }
+  }
+  
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(init?.headers as Record<string, string> ?? {}),
+  };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
   const res = await fetch(`${BASE}${path}`, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
+    headers,
     cache: 'no-store',
   });
 
   if (!res.ok) {
-    throw new Error(`Client API error: ${res.status} ${res.statusText}`);
+    // Try to parse error response for better error messages
+    try {
+      const errorData = await res.json();
+      const errorCode = errorData.error || 'UNKNOWN_ERROR';
+      throw new Error(`${errorCode}: ${errorData.message || res.statusText}`);
+    } catch {
+      throw new Error(`Client API error: ${res.status} ${res.statusText}`);
+    }
   }
   return res.json() as Promise<T>;
 }
@@ -47,11 +71,13 @@ export async function listAssets(params?: {
   serviceId?: string;
   bookingId?: string;
   type?: string;
+  category?: string;
 }): Promise<AssetFile[]> {
   const search = new URLSearchParams();
   if (params?.serviceId) search.set('serviceId', params.serviceId);
   if (params?.bookingId) search.set('bookingId', params.bookingId);
   if (params?.type) search.set('type', params.type);
+  if (params?.category) search.set('category', params.category);
   const qs = search.toString();
   return api<AssetFile[]>(`/client/assets${qs ? `?${qs}` : ''}`);
 }

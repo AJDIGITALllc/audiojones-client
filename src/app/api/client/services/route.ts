@@ -5,28 +5,40 @@ import { collection, getDocs, query, where } from 'firebase/firestore';
 import type { Service } from '@/lib/types/firestore';
 import type { ServiceSummary } from '@/lib/types';
 import { logError } from '@/lib/log';
+import { requireClientAuth, errorResponse } from '@/lib/api/middleware';
 
 export async function GET(request: NextRequest) {
   try {
+    const authResult = await requireClientAuth(request);
+    if (authResult instanceof Response) return authResult;
+    
+    const { tenantId } = authResult;
     const { searchParams } = request.nextUrl;
     const category = searchParams.get('category');
 
-    // Query services collection
-    let q = query(
+    // Query services collection - filter by active only, then filter tenant and category client-side
+    const q = query(
       collection(db, 'services'),
       where('active', '==', true)
     );
 
+    let snap = await getDocs(q);
+    
+    // Filter by tenant (tenant-specific or global services)
+    let docs = snap.docs.filter(doc => {
+      const data = doc.data() as Service;
+      return data.tenantId === tenantId || data.tenantId === null;
+    });
+    
     // Filter by category if specified
     if (category && category !== 'all') {
-      q = query(
-        collection(db, 'services'),
-        where('active', '==', true),
-        where('category', '==', category)
-      );
+      docs = docs.filter(doc => {
+        const data = doc.data() as Service;
+        return data.category === category;
+      });
     }
-
-    const snap = await getDocs(q);
+    
+    snap = { ...snap, docs } as any;
 
     // Transform Firestore docs to ServiceSummary format
     const services: ServiceSummary[] = snap.docs.map((doc) => {
@@ -68,6 +80,6 @@ export async function GET(request: NextRequest) {
       url: request.url,
       method: 'GET',
     });
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return errorResponse('INTERNAL_ERROR', 500, 'Failed to fetch services');
   }
 }

@@ -129,21 +129,36 @@ export default function BookingsPage() {
         ) : error ? (
           <div className="bg-red-900/20 border border-red-500/50 rounded-xl p-6 text-center">
             <p className="text-red-400">{error}</p>
+            <p className="text-sm text-gray-500 mt-2">
+              {error.includes("UNAUTHENTICATED") 
+                ? "Please sign in again to continue." 
+                : error.includes("FORBIDDEN")
+                ? "You don't have access to view bookings."
+                : "Please try again later."}
+            </p>
           </div>
         ) : bookings.length === 0 ? (
           <div className="bg-background-card rounded-xl p-12 text-center">
             <p className="text-gray-400 text-lg">No bookings found</p>
           </div>
         ) : (
-          <div className="space-y-4">
-            {bookings.map((booking) => (
-              <BookingCard
-                key={booking.id}
-                booking={booking}
-                onClick={() => handleBookingClick(booking.id)}
-              />
-            ))}
-          </div>
+          <BookingsGroupedList
+            bookings={bookings}
+            onBookingClick={handleBookingClick}
+            onBookingUpdate={() => {
+              // Refetch bookings
+              const refetch = async () => {
+                try {
+                  const params = statusFilter !== "ALL" ? { status: statusFilter } : undefined;
+                  const data = await listBookings(params);
+                  setBookings(data);
+                } catch (err) {
+                  console.error("Failed to refetch bookings:", err);
+                }
+              };
+              refetch();
+            }}
+          />
         )}
       </div>
 
@@ -172,56 +187,231 @@ export default function BookingsPage() {
   );
 }
 
+function BookingsGroupedList({
+  bookings,
+  onBookingClick,
+  onBookingUpdate,
+}: {
+  bookings: BookingSummary[];
+  onBookingClick: (id: string) => void;
+  onBookingUpdate: () => void;
+}) {
+  const now = new Date();
+  
+  // Group bookings by time
+  const upcoming = bookings.filter(b => {
+    if (b.status === "CANCELED" || b.status === "COMPLETED") return false;
+    if (!b.scheduledDate) return false;
+    const scheduled = new Date(b.scheduledDate);
+    return scheduled > now;
+  });
+  
+  const inProgress = bookings.filter(b => {
+    return b.status === "IN_PROGRESS" || b.status === "APPROVED";
+  });
+  
+  const past = bookings.filter(b => {
+    if (b.status === "COMPLETED" || b.status === "CANCELED") return true;
+    if (!b.scheduledDate) return false;
+    const scheduled = new Date(b.scheduledDate);
+    return scheduled <= now;
+  });
+
+  return (
+    <div className="space-y-8">
+      {upcoming.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold text-white mb-4">Upcoming</h2>
+          <div className="space-y-4">
+            {upcoming.map((booking) => (
+              <BookingCard
+                key={booking.id}
+                booking={booking}
+                onClick={() => onBookingClick(booking.id)}
+                onUpdate={onBookingUpdate}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {inProgress.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold text-white mb-4">In Progress</h2>
+          <div className="space-y-4">
+            {inProgress.map((booking) => (
+              <BookingCard
+                key={booking.id}
+                booking={booking}
+                onClick={() => onBookingClick(booking.id)}
+                onUpdate={onBookingUpdate}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {past.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold text-white mb-4">Past</h2>
+          <div className="space-y-4">
+            {past.map((booking) => (
+              <BookingCard
+                key={booking.id}
+                booking={booking}
+                onClick={() => onBookingClick(booking.id)}
+                onUpdate={onBookingUpdate}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BookingCard({
   booking,
   onClick,
+  onUpdate,
 }: {
   booking: BookingSummary;
   onClick: () => void;
+  onUpdate?: () => void;
 }) {
-  return (
-    <div
-      onClick={onClick}
-      className="bg-background-card rounded-xl p-6 hover:bg-gray-800 transition-colors cursor-pointer"
-    >
-      <div className="flex items-start justify-between mb-4">
-        <div>
-          <h3 className="text-xl font-semibold text-white mb-1">
-            {booking.serviceName}
-          </h3>
-          <p className="text-gray-400 text-sm">
-            {new Date(booking.createdAt).toLocaleDateString()}
-          </p>
-        </div>
-        <span
-          className={`px-3 py-1 rounded-full text-xs font-medium border ${
-            statusColors[booking.status]
-          }`}
-        >
-          {statusLabels[booking.status] || booking.status.replace("_", " ")}
-        </span>
-      </div>
+  const [showActions, setShowActions] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-      <div className="flex items-center gap-4 text-sm text-gray-500">
-        <span className="flex items-center gap-1">
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-            />
-          </svg>
-          {booking.scheduledDate || "Not scheduled"}
-        </span>
-        {booking.totalCost && (
-          <span className="text-white font-medium">${booking.totalCost}</span>
-        )}
+  const handleCancel = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("Are you sure you want to cancel this booking?")) return;
+    
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/client/bookings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookingId: booking.id,
+          status: "CANCELED",
+        }),
+      });
+      
+      if (!res.ok) throw new Error("Failed to cancel booking");
+      
+      onUpdate?.();
+    } catch (err) {
+      console.error("Failed to cancel booking:", err);
+      alert("Failed to cancel booking. Please try again.");
+    } finally {
+      setLoading(false);
+      setShowActions(false);
+    }
+  };
+
+  const canCancel = !["CANCELED", "COMPLETED", "DECLINED"].includes(booking.status);
+  const canReschedule = ["APPROVED", "PENDING", "PENDING_PAYMENT"].includes(booking.status);
+  return (
+    <div className="bg-background-card rounded-xl p-6 hover:bg-gray-800 transition-colors relative">
+      <div className="cursor-pointer" onClick={onClick}>
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h3 className="text-xl font-semibold text-white mb-1">
+              {booking.serviceName}
+            </h3>
+            <p className="text-gray-400 text-sm">
+              {new Date(booking.createdAt).toLocaleDateString()}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span
+              className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                statusColors[booking.status]
+              }`}
+            >
+              {statusLabels[booking.status] || booking.status.replace("_", " ")}
+            </span>
+            {(canCancel || canReschedule) && (
+              <div className="relative">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowActions(!showActions);
+                  }}
+                  className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                  disabled={loading}
+                >
+                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                  </svg>
+                </button>
+                {showActions && (
+                  <div className="absolute right-0 top-full mt-1 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-10 min-w-[160px]">
+                    <button
+                      onClick={onClick}
+                      className="w-full px-4 py-2 text-left text-sm text-white hover:bg-gray-800 transition-colors flex items-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                      View Details
+                    </button>
+                    {canReschedule && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          alert("Reschedule feature coming soon!");
+                          setShowActions(false);
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-white hover:bg-gray-800 transition-colors flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        Reschedule
+                      </button>
+                    )}
+                    {canCancel && (
+                      <button
+                        onClick={handleCancel}
+                        disabled={loading}
+                        className="w-full px-4 py-2 text-left text-sm text-red-400 hover:bg-gray-800 transition-colors flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        {loading ? "Canceling..." : "Cancel Booking"}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 text-sm text-gray-500">
+          <span className="flex items-center gap-1">
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+              />
+            </svg>
+            {booking.scheduledDate || "Not scheduled"}
+          </span>
+          {booking.totalCost && (
+            <span className="text-white font-medium">${booking.totalCost}</span>
+          )}
+        </div>
       </div>
     </div>
   );
